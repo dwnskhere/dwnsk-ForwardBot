@@ -39,7 +39,7 @@
       "value": "document"
     },
     "DATABASE_URI": {
-      "description": "Your MongoDB Uri"
+      "description": "Your MongoDB Uri",
       "value": ""
     }
   },

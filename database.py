@@ -1,8 +1,9 @@
 
-from os import environ 
+from os import environ
+from datetime import datetime, timedelta
 from config import Config
 import motor.motor_asyncio
-from pymongo import MongoClient
+from pymongo import MongoClient, ReturnDocument
 
 async def mongodb_version():
     x = MongoClient(Config.DATABASE_URI)
@@ -17,7 +18,10 @@ class Database:
         self.bot = self.db.bots
         self.col = self.db.users
         self.nfy = self.db.notify
-        self.chl = self.db.channels 
+        self.chl = self.db.channels
+        # Durable forwarding state: survives dyno/container restarts.
+        self.forward_jobs = self.db.forward_jobs
+        self.forward_job_failures = self.db.forward_job_failures
         
     def new_user(self, id, name):
         return dict(
@@ -171,4 +175,162 @@ class Database:
        return self.nfy.find({})
        
     
+
+    # ---------------- Durable forwarding jobs ----------------
+    async def ensure_forward_job_indexes(self):
+        await self.forward_jobs.create_index([("status", 1), ("lease_until", 1)])
+        await self.forward_jobs.create_index([("user_id", 1), ("status", 1)])
+        await self.forward_job_failures.create_index([("job_id", 1), ("source_message_id", 1)], unique=True)
+
+    async def create_forward_job(self, job_id, data):
+        """Create a durable task record before the first Telegram send."""
+        now = datetime.utcnow()
+        document = dict(data)
+        # MongoDB creates the queried _id on an upsert; keep it out of the
+        # $setOnInsert document to avoid update-path conflicts.
+        document.pop("_id", None)
+        document.update({
+            "status": "queued",
+            "created_at": now,
+            "updated_at": now,
+            "last_activity_at": now,
+            "lease_until": now + timedelta(minutes=5),
+            "worker_id": None,
+            "last_processed_id": int(data.get("skip", 0)),
+            "fetched": 0,
+            "total_files": 0,
+            "deleted": 0,
+            "failed_count": 0,
+        })
+        await self.forward_jobs.update_one(
+            {"_id": str(job_id)}, {"$setOnInsert": document}, upsert=True
+        )
+        return await self.forward_jobs.find_one({"_id": str(job_id)})
+
+    async def get_forward_job(self, job_id):
+        return await self.forward_jobs.find_one({"_id": str(job_id)})
+
+    async def get_latest_forward_job(self, user_id):
+        return await self.forward_jobs.find_one({"user_id": int(user_id)}, sort=[("created_at", -1)])
+
+    async def requeue_forward_job(self, job_id):
+        """Allow an explicitly retried needs-attention job to resume at its checkpoint."""
+        now = datetime.utcnow()
+        return await self.forward_jobs.find_one_and_update(
+            {"_id": str(job_id), "status": "needs_attention"},
+            {"$set": {
+                "status": "queued",
+                "worker_id": None,
+                "lease_until": now + timedelta(minutes=5),
+                "updated_at": now,
+                "last_activity_at": now,
+                "attempt_count": 0,
+            }},
+            return_document=ReturnDocument.AFTER,
+        )
+
+    async def claim_forward_job(self, job_id, worker_id, lease_seconds=180):
+        """Atomically claim a queued job or a job whose previous lease expired."""
+        now = datetime.utcnow()
+        query = {
+            "_id": str(job_id),
+            "$or": [
+                {"status": "queued"},
+                {"status": {"$in": ["running", "interrupted"]}, "lease_until": {"$lte": now}},
+            ],
+        }
+        return await self.forward_jobs.find_one_and_update(
+            query,
+            {"$set": {
+                "status": "running",
+                "worker_id": worker_id,
+                "lease_until": now + timedelta(seconds=lease_seconds),
+                "updated_at": now,
+                "last_activity_at": now,
+                "started_at": now,
+            }, "$inc": {"attempt_count": 1}},
+            return_document=ReturnDocument.AFTER,
+        )
+
+    async def update_forward_job_progress(self, job_id, worker_id, fields, lease_seconds=180):
+        now = datetime.utcnow()
+        updates = dict(fields)
+        updates.update({
+            "updated_at": now,
+            "last_activity_at": now,
+            "lease_until": now + timedelta(seconds=lease_seconds),
+        })
+        result = await self.forward_jobs.update_one(
+            {"_id": str(job_id), "worker_id": worker_id, "status": "running"},
+            {"$set": updates},
+        )
+        return result.matched_count == 1
+
+    async def heartbeat_forward_job(self, job_id, worker_id, lease_seconds=180):
+        now = datetime.utcnow()
+        result = await self.forward_jobs.update_one(
+            {"_id": str(job_id), "worker_id": worker_id, "status": "running"},
+            {"$set": {"lease_until": now + timedelta(seconds=lease_seconds), "last_activity_at": now}},
+        )
+        return result.matched_count == 1
+
+    async def set_forward_job_status(self, job_id, status, worker_id=None, **fields):
+        now = datetime.utcnow()
+        updates = dict(fields)
+        updates.update({"status": status, "updated_at": now, "last_activity_at": now})
+        if status in ("completed", "completed_with_errors", "cancelled", "needs_attention"):
+            updates["completed_at"] = now
+        if status != "running":
+            if status == "interrupted":
+                updates.setdefault("lease_until", now - timedelta(seconds=1))
+            else:
+                updates["lease_until"] = now
+            updates["worker_id"] = None
+        query = {"_id": str(job_id)}
+        if worker_id is not None:
+            query["worker_id"] = worker_id
+        return await self.forward_jobs.update_one(query, {"$set": updates})
+
+    async def get_recoverable_forward_jobs(self, limit=20):
+        now = datetime.utcnow()
+        cursor = self.forward_jobs.find({
+            "status": {"$in": ["running", "interrupted", "queued"]},
+            "lease_until": {"$lte": now},
+        }).sort("created_at", 1).limit(limit)
+        return [job async for job in cursor]
+
+    async def record_forward_job_failure(self, job_id, user_id, source_chat, destination_chat, source_message_id, error):
+        now = datetime.utcnow()
+        await self.forward_job_failures.update_one(
+            {"job_id": str(job_id), "source_message_id": int(source_message_id)},
+            {"$set": {
+                "job_id": str(job_id),
+                "user_id": int(user_id),
+                "source_chat": source_chat,
+                "destination_chat": destination_chat,
+                "source_message_id": int(source_message_id),
+                "error": str(error)[:1000],
+                "updated_at": now,
+            }, "$setOnInsert": {"created_at": now}},
+            upsert=True,
+        )
+
+    async def get_forward_job_failures_after(self, job_id, source_message_id, limit=1000):
+        cursor = self.forward_job_failures.find({
+            "job_id": str(job_id),
+            "source_message_id": {"$gt": int(source_message_id)},
+        }).sort("source_message_id", 1).limit(limit)
+        return [item async for item in cursor]
+
+    async def count_forward_job_failures(self, job_id):
+        return await self.forward_job_failures.count_documents({"job_id": str(job_id)})
+
+    async def get_retryable_forward_job_failures(self, job_id, limit=1000):
+        cursor = self.forward_job_failures.find({"job_id": str(job_id)}).sort("source_message_id", 1).limit(limit)
+        return [item async for item in cursor]
+
+    async def resolve_forward_job_failure(self, job_id, source_message_id):
+        await self.forward_job_failures.delete_one({"job_id": str(job_id), "source_message_id": int(source_message_id)})
+
+
 db = Database(Config.DATABASE_URI, Config.DATABASE_NAME)

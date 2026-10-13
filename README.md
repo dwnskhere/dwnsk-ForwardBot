@@ -76,19 +76,16 @@ python3 -m bot
 • <code>/start</code> - System Handshake
 
 
-• <code>/forward</code> - Initiate Sync Task
+• <code>/forward</code> or <code>/fwd</code> - Start forwarding
 
 
-• <code>/settings</code> - Config Dashboard
+• <code>/fwdstatus</code> - Show saved task progress/checkpoint
 
 
-• <code>/unequify</code> - Duplicate Purge
+• <code>/settings</code> - Configure accounts and destinations
 
 
-• <code>/cancel</code> - Terminate Thread </td> <td width="50%" valign="top"> <b>🛡️ Admin Authority</b>
-
-
-• <code>/stats</code> - Analytics Insight
+• <code>/reset</code> - Reset personal settings </td> <td width="50%" valign="top"> <b>🛡️ Admin Authority</b>
 
 
 • <code>/broadcast</code> - Mass Notification
@@ -98,6 +95,16 @@ python3 -m bot
 
 
 • <code>/resetall</code> - Database Flush </td> </tr> </table>
+
+### ♻️ Durable forwarding recovery (MongoDB)
+
+Forwarding tasks are now saved in MongoDB before processing begins. The bot stores the source cursor, task state, progress counters, status-message reference, and known failed source message IDs. After a Heroku/container restart, a recovery worker finds expired task leases and resumes active jobs from the last confirmed checkpoint instead of starting from message ID zero.
+
+- Use `/fwdstatus` to inspect the latest task, its last confirmed source message ID, successful-forward count, and known failed message IDs.
+- Keep `DATABASE_URI`/`DATABASE` pointed at persistent MongoDB. In-memory state and Heroku's local filesystem are not used as the recovery source of truth.
+- Completed and manually cancelled jobs are not automatically restarted. Source-access problems are marked `needs_attention` until the access issue is fixed.
+- Copy-mode checkpoints are committed after each message. Native-forward mode sends a batch and then checkpoints it; if the process dies after Telegram accepts a batch but before MongoDB commits its checkpoint, that one in-flight batch may be sent again on recovery. Telegram does not provide an idempotency key for forwarding, so exactly-once delivery cannot be guaranteed; the design prioritizes not skipping unconfirmed messages.
+- Individual copy failures are recorded in `forward_job_failures` and the task ends as `completed_with_errors` so the failure count is visible instead of silently reporting full success.
 
 ✨ Premium Features
 [!TIP] Performance Optimized: This bot uses dynamic sleep intervals to prevent Telegram FloodWaits during high-volume transfers.
@@ -110,7 +117,7 @@ python3 -m bot
 
 [x] Real-time UX: Live percentage bars and dynamic ETA tracking.
 
-[x] Self-Healing: Automatic recovery from session disconnects or API errors.
+[x] Durable job recovery: Resume interrupted forwarding from MongoDB checkpoints; an ambiguous in-flight native-forward batch may be replayed.
 
 💎 Architect Branding
 <p align="center"> <img src="https://www.google.com/search?q=https://github-readme-stats.vercel.app/api%3Fusername%3DDhanpal-Sharma%26show_icons%3Dtrue%26theme%3Dradical%26hide_border%3Dtrue%26bg_color%3D0D1117%26title_color%3D0078D4%26icon_color%3D0078D4" width="48%"> <img src="https://www.google.com/search?q=https://github-readme-stats.vercel.app/api/top-langs/%3Fusername%3DDhanpal-Sharma%26layout%3Dcompact%26theme%3Dradical%26hide_border%3Dtrue%26bg_color%3D0D1117%26title_color%3D0078D4" width="40%"> </p>

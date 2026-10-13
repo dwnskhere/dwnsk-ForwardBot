@@ -20,12 +20,14 @@ class Translation(object):
 <u>**📚 Available Commands:**</u>
 
 <b>⏣ __/start - Check I'm alive__ 
-⏣ __/forward - Forward messages__
-⏣ __/unequify - Delete duplicate messages in channels__
+⏣ __/forward or /fwd - Forward messages__
+⏣ __/fwdstatus - Show latest task/checkpoint__
+⏣ __/unequify - Duplicate cleanup (use carefully)__
 ⏣ __/settings - Configure your settings__
 ⏣ __/reset - Reset your settings__
-⏣ __/donate - Donate to developer__
-⏣ __/stop - Cancel your ongoing forwarding__</b>
+⏣ __/donate - Donation information__
+
+Use the **Stop Process** button on the active progress panel to cancel forwarding.</b>
 
 <b><u>💢 Features:</b></u>
 <b>► __Forward message from public channel to your channel without admin permission. if the channel is private need admin permission__

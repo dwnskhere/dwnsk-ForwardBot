@@ -56,10 +56,14 @@ async def start_clone_bot(FwdBot, data=None):
                 for message in app.iter_messages("pyrogram", 1, 15000):
                     print(message.text)
         """
-        current = offset
+        # Forward history oldest-first. `offset` is the last processed/skipped
+        # message id, so the next page must begin at offset + 1. This is also
+        # what makes persistent checkpoints resumable without replaying the
+        # last committed message.
+        current = max(int(offset or 0) + 1, 1)
         while True:
             new_diff = min(200, limit - current)
-            if new_diff <= 0:
+            if new_diff < 0:
                 return
             messages = await self.get_messages(chat_id, list(range(current, current+new_diff+1)))
             for message in messages:

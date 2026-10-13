@@ -43,6 +43,16 @@ class Bot(Client):
         self.set_parse_mode(ParseMode.DEFAULT)
         text = "<b>๏[-ิ_•ิ]๏ ʙᴏᴛ ʀᴇsᴛᴀʀᴛᴇᴅ !</b>"
         logging.info(text)
+
+        # Durable forwarding jobs are stored in MongoDB, not process memory.
+        # The recovery worker claims expired leases and resumes each job from
+        # its last confirmed source-message checkpoint.
+        try:
+            from plugins.regix import recovery_worker
+            self._forward_recovery_task = asyncio.create_task(recovery_worker(self))
+        except Exception:
+            logging.exception("Unable to initialize forwarding recovery worker")
+
         success = failed = 0
 
         users = await db.get_all_frwd()

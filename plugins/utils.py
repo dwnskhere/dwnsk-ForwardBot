@@ -13,9 +13,35 @@ class STS:
     def verify(self):
         return self.data.get(self.id)
     
-    def store(self, From, to,  skip, limit):
-        self.data[self.id] = {"FROM": From, 'TO': to, 'total_files': 0, 'skip': skip, 'limit': limit,
-                      'fetched': skip, 'filtered': 0, 'deleted': 0, 'duplicate': 0, 'total': limit, 'start': 0}
+    def store(self, From, to, skip, limit):
+        self.data[self.id] = {
+            "FROM": From, "TO": to, "total_files": 0, "skip": int(skip), "limit": int(limit),
+            "fetched": 0, "filtered": 0, "deleted": 0, "duplicate": 0,
+            "failed": 0, "total": max(int(limit) - int(skip), 1), "start": 0,
+            "last_processed_id": int(skip),
+        }
+        self.get(full=True)
+        return STS(self.id)
+
+    def restore(self, job):
+        """Rebuild in-memory status from the durable MongoDB checkpoint."""
+        skip = int(job.get("skip", 0))
+        limit = int(job.get("limit", 0))
+        self.data[self.id] = {
+            "FROM": job.get("from_chat"),
+            "TO": job.get("to_chat"),
+            "total_files": int(job.get("total_files", 0)),
+            "skip": skip,
+            "limit": limit,
+            "fetched": int(job.get("fetched", 0)),
+            "filtered": int(job.get("filtered", 0)),
+            "deleted": int(job.get("deleted", 0)),
+            "duplicate": int(job.get("duplicate", 0)),
+            "failed": int(job.get("failed_count", 0)),
+            "total": max(limit - skip, 1),
+            "start": 0,
+            "last_processed_id": int(job.get("last_processed_id", skip)),
+        }
         self.get(full=True)
         return STS(self.id)
         
