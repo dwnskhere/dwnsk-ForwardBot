@@ -1,45 +1,43 @@
-
 {
   "name": "AutoForwardX",
   "description": "Telegram's Best Smart Plugin File Forward Bot",
   "stack": "container",
   "keywords": [
     "telegram",
-    "best",
     "file",
     "forward",
     "bot"
   ],
-  "success_url": "https://t.me/DmOwner",
-  "repository": "https://github.com/LastPerson07/ForwardBot",
+  "successurl": "https://t.me/DmOwner",
+  "repository": "https://github.com/dwnskhere/dwnsk-ForwardBot/tree/dev",
   "env": {
-    "API_ID": {
-      "description": "Get this value from https://my.telegram.org or @UseTGSBot",
+    "APIID": {
+      "description": "Get this value from https://my.telegram.org",
       "value": ""
     },
-    "API_HASH": {
-      "description": "Get this value from https://my.telegram.org or @UseTGSBot",
+    "APIHASH": {
+      "description": "Get this value from https://my.telegram.org",
       "value": ""
     },
-    "BOT_TOKEN": {
-      "description": "Your bot token from @BotFather",
-      "value": ""
-
-    },
-    "BOT_OWNER_ID": {
-      "description": "Enter Your Telegram id",
+    "BOTTOKEN": {
+      "description": "Your Telegram bot token from @BotFather",
       "value": ""
     },
-    "BANNED_USERS": {
-      "description": "If you want to add a caption to the forwarded file, enter it here",
-      "required": false
+    "BOTOWNERID": {
+      "description": "Enter your Telegram user ID",
+      "value": ""
     },
-    "DATABASE_NAME": {
-      "description": "Type Of filters (document , audio , photo , video , animation)",
+    "BANNEDUSERS": {
+      "description": "Comma-separated Telegram user IDs to ban",
+      "required": false,
+      "value": ""
+    },
+    "DATABASENAME": {
+      "description": "Default file type filter (document, audio, photo, video, animation)",
       "value": "document"
     },
     "DATABASE_URI": {
-      "description": "Your MongoDB Uri",
+      "description": "Your MongoDB connection URI",
       "value": ""
     }
   },
