@@ -130,3 +130,10 @@ Forwarding tasks are now saved in MongoDB before processing begins. The bot stor
 <p align="center"> <img src="https://www.google.com/search?q=https://img.shields.io/badge/2026-DHANPAL%2520SHARMA-0078D4%3Fstyle%3Dfor-the-badge"> </p>
 
 <p align="center"> <i>© 2026 Premium Bot Solutions. All Rights Reserved.</i> </p>
+
+### Heroku deployment note (worker/container path)
+
+The container manifest builds a `worker` process and starts `python -u bot.py`. It does not start Gunicorn separately: `bot.py` starts the bot and its own aiohttp endpoint. The Dockerfile uses the official Python 3.11 slim Bookworm image and installs build dependencies from the current Bookworm repositories, instead of the old `python:3.10-slim-bullseye` base that can fail with stale Debian package URLs.
+
+For durable job recovery, keep `DATABASE_URI` connected to the same persistent MongoDB database across redeploys. After deploying, check that one `worker` dyno is running and inspect logs for MongoDB and Telegram startup errors.
+

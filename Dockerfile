@@ -1,26 +1,24 @@
-# Use Bullseye instead of Buster to fix the 404 repository error
-FROM python:3.10-slim-bullseye
+# Python version matches the project's Python 3.11 runtime.
+# Bookworm avoids the stale Bullseye package URLs shown in the failed build log.
+FROM python:3.11-slim-bookworm
 
-# Install system dependencies
-# These are needed for tgcrypto, motor, and git-based installs
-RUN apt-get update && apt-get install -y \
-    gcc \
-    python3-dev \
-    git \
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+# Compiler tools are required if a dependency (for example TgCrypto) needs a source build.
+# Python headers are already included with the official python image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential git \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements and install
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt ./requirements.txt
+RUN python -m pip install --upgrade pip setuptools wheel \
+    && python -m pip install -r requirements.txt
 
-# Copy the rest of your ForwardBot code
 COPY . .
 
-# Set execution permissions
-RUN chmod +x run.sh
-
-# Start the process
-CMD ["./run.sh"]
+# The Heroku process is a worker, not a web dyno. bot.py starts its own aiohttp endpoint.
+CMD ["python", "-u", "bot.py"]
